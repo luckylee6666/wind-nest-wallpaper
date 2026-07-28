@@ -1,0 +1,20 @@
+# macOS
+.DS_Store
+
+# Dependencies and build artifacts
+node_modules/
+.build-cache/
+dist/
+Resources/app.js
+Resources/AppIcon.iconset/
+docs/app-icon-source.png
+
+# Local design/tooling sessions
+.stitch/
+scripts/blender-mcp-client.mjs
+scripts/stitch-refine-control.mjs
+
+# Blender recovery files
+*.blend1
+*.blend2
+*.blend@

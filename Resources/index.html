@@ -1,0 +1,205 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta
+      name="viewport"
+      content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no"
+    />
+    <meta name="color-scheme" content="dark" />
+    <title>风巢｜透明桌面风扇</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <main id="fanStage" aria-label="可交互的 Blender 三维桌面风扇">
+      <div id="loading" class="loading" aria-live="polite">
+        <i></i>
+        <span>载入风扇</span>
+      </div>
+
+      <div class="brand ui-layer" aria-hidden="true">
+        <strong>风巢</strong>
+        <span>GESTURE STUDIO</span>
+      </div>
+
+      <button
+        id="quitButton"
+        class="quit-button ui-layer"
+        type="button"
+        aria-label="退出风巢"
+      >
+        <span>退出</span>
+        <kbd>⌘Q</kbd>
+      </button>
+
+      <aside
+        id="gestureToast"
+        class="gesture-toast ui-layer"
+        role="status"
+        aria-live="polite"
+        hidden
+      >
+        <svg viewBox="0 0 24 24" aria-hidden="true">
+          <path d="M4 8.5h3l1.5-2h7l1.5 2h3v9.5H4z" />
+          <circle cx="12" cy="13" r="3" />
+        </svg>
+        <span>请在系统设置中允许摄像头</span>
+        <button id="gestureSettingsButton" type="button">打开设置</button>
+        <button
+          id="gestureToastClose"
+          class="toast-close"
+          type="button"
+          aria-label="关闭摄像头权限提示"
+        >
+          ×
+        </button>
+      </aside>
+
+      <section
+        id="cameraStudio"
+        class="camera-studio"
+        aria-label="本机摄像头手势监看"
+      >
+        <div class="camera-monitor">
+          <div class="monitor-scanlines" aria-hidden="true"></div>
+          <div class="monitor-topbar">
+            <span class="live-badge">
+              <i></i>
+              本机画面 · LIVE
+            </span>
+            <span class="privacy-badge">仅本地显示</span>
+          </div>
+
+          <div id="cameraPlaceholder" class="camera-placeholder">
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="M4 8.5h3l1.5-2h7l1.5 2h3v9.5H4z" />
+              <circle cx="12" cy="13" r="3" />
+            </svg>
+            <strong>摄像头待机</strong>
+            <span>开启手势跟随后显示本机画面</span>
+          </div>
+
+          <svg
+            id="handOverlay"
+            class="hand-overlay"
+            viewBox="0 0 1000 750"
+            preserveAspectRatio="none"
+            aria-hidden="true"
+          >
+            <rect id="handBounds" class="hand-bounds"></rect>
+            <g id="handSkeleton"></g>
+          </svg>
+
+          <div class="gesture-readout" aria-live="polite">
+            <div>
+              <span>当前识别</span>
+              <strong id="cameraGestureValue">等待手势</strong>
+            </div>
+            <div class="hold-indicator" aria-hidden="true">
+              <i id="gestureHoldProgress"></i>
+            </div>
+          </div>
+        </div>
+
+        <div class="gesture-legend" aria-label="手势说明">
+          <span><i>●</i>握拳关闭</span>
+          <span><i>1</i>一指一档</span>
+          <span><i>2</i>二指二档</span>
+          <span><i>3</i>三指三档</span>
+        </div>
+      </section>
+
+      <nav class="control-dock ui-layer" aria-label="风扇控制">
+        <button
+          id="powerButton"
+          class="power-button active"
+          type="button"
+          aria-pressed="true"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M12 2v9" />
+            <path d="M6.1 5.8a8 8 0 1 0 11.8 0" />
+          </svg>
+          <i id="statusDot"></i>
+          <span id="statusText">运行中</span>
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <div class="speed-control" role="group" aria-label="风速">
+          <span>风速</span>
+          <button data-speed="1" type="button" aria-label="一档">1</button>
+          <button
+            class="active"
+            data-speed="2"
+            type="button"
+            aria-label="二档"
+          >
+            2
+          </button>
+          <button data-speed="3" type="button" aria-label="三档">3</button>
+        </div>
+
+        <div class="dock-divider"></div>
+
+        <button
+          id="oscillateButton"
+          class="icon-button active"
+          type="button"
+          aria-label="自动摆头"
+          aria-pressed="true"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M5 15a8 8 0 0 1 14 0" />
+            <path d="m5 15 1-4M5 15l4-1M19 15l-1-4m1 4-4-1" />
+            <circle cx="12" cy="8" r="2.2" />
+          </svg>
+          <span>摆头</span>
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <button
+          id="gestureButton"
+          class="icon-button gesture-button"
+          type="button"
+          aria-label="手势跟随"
+          aria-pressed="false"
+          data-status="off"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M7.8 11V6.4a1.2 1.2 0 0 1 2.4 0V10" />
+            <path d="M10.2 10V5a1.2 1.2 0 0 1 2.4 0v5" />
+            <path d="M12.6 10V6a1.2 1.2 0 0 1 2.4 0v5" />
+            <path d="M15 11V8a1.2 1.2 0 0 1 2.4 0v5.8" />
+            <path
+              d="m7.8 10.6-1.4-1.2a1.35 1.35 0 0 0-2 1.7l3.3 6.2A4.2 4.2 0 0 0 11.4 20h1.8a4.2 4.2 0 0 0 4.2-4.2v-2"
+            />
+          </svg>
+          <i class="gesture-status-dot" aria-hidden="true"></i>
+          <span id="gestureLabel">手势</span>
+        </button>
+
+        <div class="dock-divider"></div>
+
+        <button
+          id="cameraPreviewButton"
+          class="icon-button active"
+          type="button"
+          aria-label="显示或隐藏左侧视频画面"
+          aria-pressed="true"
+        >
+          <svg viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="3.5" y="6" width="12.5" height="12" rx="2.5" />
+            <path d="m16 10 4.5-2.5v9L16 14" />
+          </svg>
+          <span id="cameraPreviewLabel">画面</span>
+        </button>
+
+        <span id="dragHint" class="drag-hint">移动鼠标 · 风扇跟随</span>
+      </nav>
+    </main>
+
+    <script src="app.js?v=7"></script>
+  </body>
+</html>
