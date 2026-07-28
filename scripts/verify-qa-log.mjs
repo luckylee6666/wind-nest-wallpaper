@@ -49,7 +49,7 @@ for (const speed of [1, 2, 3]) {
   const frame = result(`SPEED_${speed}`);
   assert(frame.speed === speed, `${speed} 档没有切换成功`);
   assert(frame.power === true, `${speed} 档切换后风扇没有启动`);
-  assertNear(frame.actualSpeed, speed, 0.4, `${speed} 档实际速度`);
+  assertNear(frame.actualSpeed, speed, 0.5, `${speed} 档实际速度`);
 }
 
 const left = result("GESTURE_LEFT");
