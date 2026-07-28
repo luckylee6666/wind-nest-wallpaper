@@ -19,23 +19,61 @@
 - 握拳关闭、张开手掌启动，伸出 1/2/3 根手指切换档位
 - 摄像头画面和手势识别全部在本机处理，不保存、不上传
 
-## 系统要求
+## 下载使用
 
 - macOS 13.0 或更高版本
-- Xcode Command Line Tools
-- Node.js 18 或更高版本
-- Blender 4.x（仅在重新生成三维模型时需要）
+- 支持 Apple Silicon 与 Intel Mac
+
+在 [GitHub Releases](https://github.com/luckylee6666/wind-nest-wallpaper/releases)
+下载 `Wind-Nest-macOS-universal.zip`，解压后将“风巢.app”拖入“应用程序”目录。
+
+正式公开分发建议使用经过 Apple Developer ID 签名和公证的发布包。仓库未配置
+Developer ID 时，GitHub Actions 仍会生成临时签名包，但首次打开可能需要在
+Finder 中按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”
+确认打开。
 
 ## 构建与运行
 
+构建环境需要 Xcode Command Line Tools 和 Node.js 18 或更高版本。
+
 ```bash
 npm ci
-chmod +x scripts/build.sh
 ./scripts/build.sh
+./scripts/package.sh
 open dist/风巢.app
 ```
 
-首次开启手势控制时，macOS 会请求摄像头权限。本地构建采用临时签名，重新构建后系统可能再次询问权限。
+构建结果是同时支持 `arm64` 和 `x86_64` 的通用应用，下载包位于
+`dist/Wind-Nest-macOS-universal.zip`。首次开启手势控制时，macOS 会请求摄像头
+权限。本地构建采用临时签名，重新构建后系统可能再次询问权限。
+
+## GitHub 自动构建与发布
+
+`.github/workflows/build-macos.yml` 会在以下情况运行：
+
+- 更新 `main` 分支或创建 Pull Request：构建并保存 30 天的下载产物
+- 手动运行工作流：按当前分支生成下载产物
+- 推送 `v` 开头的版本标签：构建并自动创建 GitHub Release
+
+例如发布 `v2.0.0`：
+
+```bash
+git tag v2.0.0
+git push origin v2.0.0
+```
+
+如需让普通用户直接通过 Gatekeeper 检查，需要加入 Apple Developer Program，并在
+仓库 Actions secrets 中配置：
+
+- `APPLE_CERTIFICATE_P12`：Developer ID Application 证书 `.p12` 的 Base64 内容
+- `APPLE_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码
+- `APPLE_ID`：用于公证的 Apple ID
+- `APPLE_TEAM_ID`：Apple Developer Team ID
+- `APPLE_APP_SPECIFIC_PASSWORD`：Apple ID 的 App 专用密码
+- `APPLE_SIGNING_IDENTITY`：可选；证书包含多个身份时指定完整签名身份
+
+标签构建会在 secrets 完整时自动完成 Developer ID 签名、Apple 公证和票据装订。
+未配置证书时仍会发布临时签名包，并在 Actions 日志中给出提醒。
 
 ## 交互
 
@@ -51,11 +89,15 @@ open dist/风巢.app
 - `H` 或 `Esc`：隐藏或显示控制条
 - `Command + Q`：退出
 
-## 重新生成三维模型
+## 三维模型与重新生成
 
 ```bash
 blender --background --python blender/build_fan.py
 ```
+
+Blender 源文件 `Resources/assets/wind-nest-fan.blend` 和应用加载的
+`Resources/assets/wind-nest-fan.glb` 都已纳入 Git，会随 GitHub 仓库和源码归档一同
+下载。Blender 4.x 仅在重新生成模型时需要。
 
 脚本会更新：
 
@@ -71,6 +113,7 @@ web-src/app.js            Three.js 场景、动画和交互逻辑
 Resources/                页面样式、HTML 与三维资产
 blender/build_fan.py      Blender 程序化建模脚本
 scripts/build.sh          本地应用构建脚本
+scripts/package.sh        生成 ZIP 下载包与 SHA-256 校验文件
 ```
 
 ## 隐私

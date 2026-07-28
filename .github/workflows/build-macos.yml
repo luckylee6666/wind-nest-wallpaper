@@ -1,0 +1,121 @@
+name: 构建 macOS 应用
+
+"on":
+  push:
+    branches:
+      - main
+    tags:
+      - "v[0-9]*"
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: 构建通用版应用
+    runs-on: macos-15
+    timeout-minutes: 30
+
+    steps:
+      - name: 检出源码
+        uses: actions/checkout@v4
+
+      - name: 配置 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: 安装前端依赖
+        run: npm ci
+
+      - name: 构建 Apple Silicon 与 Intel 通用版
+        shell: zsh {0}
+        run: |
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            app_version="${GITHUB_REF_NAME#v}"
+          else
+            app_version="$(node -p "require('./package.json').version")"
+          fi
+
+          WIND_NEST_VERSION="$app_version" \
+          WIND_NEST_BUILD_NUMBER="$GITHUB_RUN_NUMBER" \
+          ./scripts/build.sh
+
+      - name: 校验应用、架构与三维模型
+        shell: zsh {0}
+        run: |
+          plutil -lint "dist/风巢.app/Contents/Info.plist"
+          xcrun lipo "dist/风巢.app/Contents/MacOS/WindNest" \
+            -verify_arch arm64 x86_64
+          codesign --verify --deep --strict --verbose=2 "dist/风巢.app"
+          cmp \
+            "Resources/assets/wind-nest-fan.glb" \
+            "dist/风巢.app/Contents/Resources/assets/wind-nest-fan.glb"
+
+      - name: 对标签发布进行 Developer ID 签名与 Apple 公证
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        shell: zsh {0}
+        run: |
+          if [[ -z "$APPLE_CERTIFICATE_P12" ]]; then
+            echo "::warning::未配置 Apple Developer ID，发布包将保留临时签名。"
+          else
+            ./scripts/sign-and-notarize.sh
+          fi
+
+      - name: 生成下载包与校验文件
+        run: ./scripts/package.sh
+
+      - name: 上传构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: Wind-Nest-macOS-universal
+          path: |
+            dist/Wind-Nest-macOS-universal.zip
+            dist/Wind-Nest-macOS-universal.zip.sha256
+          if-no-files-found: error
+          retention-days: 30
+
+  release:
+    name: 发布 GitHub Release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: 下载构建产物
+        uses: actions/download-artifact@v5
+        with:
+          name: Wind-Nest-macOS-universal
+          path: release-assets
+
+      - name: 创建或更新 Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              release-assets/Wind-Nest-macOS-universal.zip \
+              release-assets/Wind-Nest-macOS-universal.zip.sha256 \
+              --clobber \
+              --repo "$GITHUB_REPOSITORY"
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              release-assets/Wind-Nest-macOS-universal.zip \
+              release-assets/Wind-Nest-macOS-universal.zip.sha256 \
+              --verify-tag \
+              --generate-notes \
+              --title "风巢 $GITHUB_REF_NAME" \
+              --repo "$GITHUB_REPOSITORY"
+          fi
