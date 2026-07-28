@@ -8,6 +8,12 @@ ARCHIVE_NAME="${WIND_NEST_ARCHIVE_NAME:-Wind-Nest-macOS-universal.zip}"
 ARCHIVE_PATH="$PROJECT_DIR/dist/$ARCHIVE_NAME"
 CHECKSUM_PATH="$ARCHIVE_PATH.sha256"
 
+if [[ "$ARCHIVE_NAME" != "${ARCHIVE_NAME:t}" ||
+      "$ARCHIVE_NAME" != *.zip ]]; then
+  echo "WIND_NEST_ARCHIVE_NAME 必须是不含路径的 .zip 文件名" >&2
+  exit 1
+fi
+
 if [[ ! -d "$APP_DIR" ]]; then
   echo "未找到 $APP_DIR，请先运行 scripts/build.sh" >&2
   exit 1

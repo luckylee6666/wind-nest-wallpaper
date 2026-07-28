@@ -73,10 +73,10 @@ cp "$PROJECT_DIR/Resources/index.html" "$RESOURCES_DIR/index.html"
 cp "$PROJECT_DIR/Resources/style.css" "$RESOURCES_DIR/style.css"
 cp "$PROJECT_DIR/Resources/app.js" "$RESOURCES_DIR/app.js"
 cp "$PROJECT_DIR/Resources/AppIcon.icns" "$RESOURCES_DIR/AppIcon.icns"
-mkdir -p "$RESOURCES_DIR/assets"
+cp "$PROJECT_DIR/LICENSE" "$RESOURCES_DIR/LICENSE.txt"
 cp \
-  "$PROJECT_DIR/Resources/assets/wind-nest-fan.glb" \
-  "$RESOURCES_DIR/assets/wind-nest-fan.glb"
+  "$PROJECT_DIR/THIRD_PARTY_NOTICES.txt" \
+  "$RESOURCES_DIR/THIRD_PARTY_NOTICES.txt"
 
 codesign \
   --force \

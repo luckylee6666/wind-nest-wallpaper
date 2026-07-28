@@ -94,7 +94,6 @@ const renderer = new THREE.WebGLRenderer({
   alpha: true,
   premultipliedAlpha: true,
   preserveDrawingBuffer: Boolean(window.__WIND_NEST_QA__),
-  powerPreference: "high-performance",
 });
 const drawingBufferSize = new THREE.Vector2();
 renderer.setClearColor(0x000000, 0);

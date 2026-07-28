@@ -17,6 +17,11 @@ final class InteractiveWebView: WKWebView {
 
 final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler,
     WKNavigationDelegate, AVCaptureVideoDataOutputSampleBufferDelegate {
+    private struct GestureTrackingState {
+        var enabled = false
+        var generation: UInt64 = 0
+    }
+
     private var window: WallpaperWindow?
     private var rootView: NSView?
     private var webView: WKWebView?
@@ -47,13 +52,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     private let bodyPoseRequest = VNDetectHumanBodyPoseRequest()
     private var gestureOutput: AVCaptureVideoDataOutput?
     private var gestureCaptureConfigured = false
-    private var gestureTrackingEnabled = false
+    private let gestureStateLock = NSLock()
+    private var gestureTrackingState = GestureTrackingState()
     private var cameraPreviewRequestedVisible = true
     private var lastVisionFrameUptime: TimeInterval = 0
     private var lastHandSeenUptime: TimeInterval = 0
     private var lastGestureDiagnosticUptime: TimeInterval = 0
     private var smoothedHandX: CGFloat?
     private var lastGestureStatus = "off"
+    private let isQAMode =
+        ProcessInfo.processInfo.environment["WIND_NEST_QA"] == "1"
 
     private func fanFrame(for screen: NSScreen) -> NSRect {
         let visible = screen.visibleFrame
@@ -94,11 +102,51 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         gesturePreviewLayer.frame = cameraPreviewView.bounds
     }
 
+    @discardableResult
+    private func updateGestureTrackingState(_ enabled: Bool) -> UInt64 {
+        gestureStateLock.lock()
+        defer { gestureStateLock.unlock() }
+        gestureTrackingState.enabled = enabled
+        gestureTrackingState.generation &+= 1
+        return gestureTrackingState.generation
+    }
+
+    private func currentGestureTrackingState() -> GestureTrackingState {
+        gestureStateLock.lock()
+        defer { gestureStateLock.unlock() }
+        return gestureTrackingState
+    }
+
+    private func isGestureTrackingStateCurrent(
+        generation: UInt64,
+        enabled: Bool
+    ) -> Bool {
+        gestureStateLock.lock()
+        defer { gestureStateLock.unlock() }
+        return gestureTrackingState.generation == generation &&
+            gestureTrackingState.enabled == enabled
+    }
+
+    private func isBundledResourceURL(_ url: URL) -> Bool {
+        guard
+            url.isFileURL,
+            let resourcesURL = Bundle.main.resourceURL
+        else {
+            return false
+        }
+
+        let resourcesPath = resourcesURL.resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        let requestedPath = url.resolvingSymlinksInPath()
+            .standardizedFileURL.path
+        return requestedPath == resourcesPath ||
+            requestedPath.hasPrefix(resourcesPath + "/")
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.accessory)
 
         let configuration = WKWebViewConfiguration()
-        configuration.preferences.setValue(true, forKey: "developerExtrasEnabled")
         configuration.userContentController.add(self, name: "wallpaper")
         configuration.userContentController.addUserScript(
             WKUserScript(
@@ -107,7 +155,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 forMainFrameOnly: true
             )
         )
-        if ProcessInfo.processInfo.environment["WIND_NEST_QA"] == "1" {
+        if isQAMode {
+            configuration.preferences.setValue(
+                true,
+                forKey: "developerExtrasEnabled"
+            )
             configuration.userContentController.addUserScript(
                 WKUserScript(
                     source: "window.__WIND_NEST_QA__ = true;",
@@ -215,18 +267,39 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         )
     }
 
+    func applicationShouldTerminateAfterLastWindowClosed(
+        _ sender: NSApplication
+    ) -> Bool {
+        true
+    }
+
     @objc private func screenChanged() {
         guard let screen = NSScreen.main else { return }
         window?.setFrame(fanFrame(for: screen), display: true, animate: false)
         layoutCameraPreview()
     }
 
-    private func sendGestureStatus(_ status: String) {
-        guard lastGestureStatus != status else { return }
-        lastGestureStatus = status
-        NSLog("[WindNestGesture] status=%@", status)
+    private func sendGestureStatus(
+        _ status: String,
+        matching generation: UInt64,
+        enabled: Bool
+    ) {
         DispatchQueue.main.async { [weak self] in
-            self?.webView?.evaluateJavaScript(
+            guard
+                let self,
+                self.isGestureTrackingStateCurrent(
+                    generation: generation,
+                    enabled: enabled
+                ),
+                self.lastGestureStatus != status
+            else {
+                return
+            }
+            self.lastGestureStatus = status
+            if self.isQAMode {
+                NSLog("[WindNestGesture] status=%@", status)
+            }
+            self.webView?.evaluateJavaScript(
                 """
                 window.windNestGestureStatus &&
                 window.windNestGestureStatus('\(status)')
@@ -244,19 +317,31 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     private func refreshCameraPreviewVisibility() {
+        let trackingEnabled = currentGestureTrackingState().enabled
         setCameraPreviewVisible(
-            gestureTrackingEnabled && cameraPreviewRequestedVisible
+            trackingEnabled && cameraPreviewRequestedVisible
         )
     }
 
     private func sendGestureOverlay(
         _ points: [
             VNHumanHandPoseObservation.JointName: VNRecognizedPoint
-        ]?
+        ]?,
+        matching generation: UInt64,
+        enabled: Bool
     ) {
         guard let points else {
             DispatchQueue.main.async { [weak self] in
-                self?.webView?.evaluateJavaScript(
+                guard
+                    let self,
+                    self.isGestureTrackingStateCurrent(
+                        generation: generation,
+                        enabled: enabled
+                    )
+                else {
+                    return
+                }
+                self.webView?.evaluateJavaScript(
                     """
                     window.windNestGestureOverlay &&
                     window.windNestGestureOverlay(null)
@@ -317,7 +402,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         }
 
         DispatchQueue.main.async { [weak self] in
-            self?.webView?.evaluateJavaScript(
+            guard
+                let self,
+                self.isGestureTrackingStateCurrent(
+                    generation: generation,
+                    enabled: enabled
+                )
+            else {
+                return
+            }
+            self.webView?.evaluateJavaScript(
                 """
                 window.windNestGestureOverlay &&
                 window.windNestGestureOverlay(\(json))
@@ -398,7 +492,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         _ handX: CGFloat?,
         hasHand: Bool,
         pose: String = "neutral",
-        fingerCount: Int? = nil
+        fingerCount: Int? = nil,
+        matching generation: UInt64
     ) {
         let xValue: String
         if let handX {
@@ -413,7 +508,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         let safePose = ["open", "fist"].contains(pose) ? pose : "neutral"
         let fingerCountValue = fingerCount.map(String.init) ?? "null"
         DispatchQueue.main.async { [weak self] in
-            self?.webView?.evaluateJavaScript(
+            guard
+                let self,
+                self.isGestureTrackingStateCurrent(
+                    generation: generation,
+                    enabled: true
+                )
+            else {
+                return
+            }
+            self.webView?.evaluateJavaScript(
                 """
                 window.windNestGestureFrame &&
                 window.windNestGestureFrame(
@@ -427,33 +531,58 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         }
     }
 
-    private func setGestureTracking(_ enabled: Bool) {
-        gestureTrackingEnabled = enabled
+    @discardableResult
+    private func setGestureTracking(_ enabled: Bool) -> UInt64 {
+        let generation = updateGestureTrackingState(enabled)
         refreshCameraPreviewVisibility()
 
         guard enabled else {
-            smoothedHandX = nil
-            sendGestureOverlay(nil)
-            sendGestureStatus("off")
+            sendGestureOverlay(
+                nil,
+                matching: generation,
+                enabled: false
+            )
+            sendGestureStatus(
+                "off",
+                matching: generation,
+                enabled: false
+            )
             gestureQueue.async { [weak self] in
-                guard let self, self.gestureSession.isRunning else { return }
-                self.gestureSession.stopRunning()
+                guard let self else { return }
+                self.smoothedHandX = nil
+                if self.gestureSession.isRunning {
+                    self.gestureSession.stopRunning()
+                }
             }
-            return
+            return generation
         }
 
-        sendGestureStatus("checking")
-        let authorization = AVCaptureDevice.authorizationStatus(for: .video)
-        NSLog(
-            "[WindNestGesture] camera authorization=%ld",
-            authorization.rawValue
+        sendGestureStatus(
+            "checking",
+            matching: generation,
+            enabled: true
         )
+        let authorization = AVCaptureDevice.authorizationStatus(for: .video)
+        if isQAMode {
+            NSLog(
+                "[WindNestGesture] camera authorization=%ld",
+                authorization.rawValue
+            )
+        }
         switch authorization {
         case .authorized:
-            sendGestureStatus("starting")
-            startGestureCapture()
+            sendGestureStatus(
+                "starting",
+                matching: generation,
+                enabled: true
+            )
+            startGestureCapture(matching: generation)
         case .notDetermined:
-            sendGestureStatus("prompting")
+            sendGestureStatus(
+                "prompting",
+                matching: generation,
+                enabled: true
+            )
             NSApp.setActivationPolicy(.regular)
             window?.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
@@ -463,57 +592,105 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                     DispatchQueue.main.async {
                         guard
                             let self,
-                            self.gestureTrackingEnabled
+                            self.isGestureTrackingStateCurrent(
+                                generation: generation,
+                                enabled: true
+                            )
                         else {
                             NSApp.setActivationPolicy(.accessory)
                             return
                         }
                         if granted {
-                            NSLog(
-                                "[WindNestGesture] camera permission granted"
+                            if self.isQAMode {
+                                NSLog(
+                                    "[WindNestGesture] camera permission granted"
+                                )
+                            }
+                            self.sendGestureStatus(
+                                "starting",
+                                matching: generation,
+                                enabled: true
                             )
-                            self.sendGestureStatus("starting")
-                            self.startGestureCapture()
+                            self.startGestureCapture(matching: generation)
                         } else {
-                            NSLog(
-                                "[WindNestGesture] camera permission denied"
-                            )
-                            self.gestureTrackingEnabled = false
+                            let disabledGeneration =
+                                self.setGestureTracking(false)
                             self.setCameraPreviewVisible(false)
-                            self.sendGestureStatus("denied")
+                            self.sendGestureStatus(
+                                "denied",
+                                matching: disabledGeneration,
+                                enabled: false
+                            )
                         }
                         NSApp.setActivationPolicy(.accessory)
                     }
                 }
             }
         case .denied, .restricted:
-            gestureTrackingEnabled = false
+            let disabledGeneration = setGestureTracking(false)
             setCameraPreviewVisible(false)
-            sendGestureStatus("denied")
+            sendGestureStatus(
+                "denied",
+                matching: disabledGeneration,
+                enabled: false
+            )
         @unknown default:
-            gestureTrackingEnabled = false
+            let disabledGeneration = setGestureTracking(false)
             setCameraPreviewVisible(false)
-            sendGestureStatus("unavailable")
+            sendGestureStatus(
+                "unavailable",
+                matching: disabledGeneration,
+                enabled: false
+            )
         }
+        return generation
     }
 
-    private func startGestureCapture() {
+    private func startGestureCapture(matching generation: UInt64) {
         gestureQueue.async { [weak self] in
-            guard let self, self.gestureTrackingEnabled else { return }
+            guard
+                let self,
+                self.isGestureTrackingStateCurrent(
+                    generation: generation,
+                    enabled: true
+                )
+            else {
+                return
+            }
             do {
                 if !self.gestureCaptureConfigured {
                     try self.configureGestureCapture()
+                }
+                guard
+                    self.isGestureTrackingStateCurrent(
+                        generation: generation,
+                        enabled: true
+                    )
+                else {
+                    return
                 }
                 if !self.gestureSession.isRunning {
                     self.gestureSession.startRunning()
                 }
                 self.lastHandSeenUptime = ProcessInfo.processInfo.systemUptime
-                self.sendGestureStatus("searching")
+                self.sendGestureStatus(
+                    "searching",
+                    matching: generation,
+                    enabled: true
+                )
             } catch {
-                self.gestureTrackingEnabled = false
+                let disabledGeneration = self.setGestureTracking(false)
                 self.setCameraPreviewVisible(false)
-                self.sendGestureStatus("unavailable")
-                print("WIND_NEST_GESTURE_ERROR \(error.localizedDescription)")
+                self.sendGestureStatus(
+                    "unavailable",
+                    matching: disabledGeneration,
+                    enabled: false
+                )
+                if self.isQAMode {
+                    print(
+                        "WIND_NEST_GESTURE_ERROR \(error.localizedDescription)"
+                    )
+                }
             }
         }
     }
@@ -575,10 +752,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             connection.automaticallyAdjustsVideoMirroring = false
             connection.isVideoMirrored = true
         }
-        NSLog(
-            "[WindNestGesture] camera=%@ preset=medium",
-            camera.localizedName
-        )
+        if isQAMode {
+            NSLog(
+                "[WindNestGesture] camera=%@ preset=medium",
+                camera.localizedName
+            )
+        }
     }
 
     func captureOutput(
@@ -586,7 +765,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         didOutput sampleBuffer: CMSampleBuffer,
         from connection: AVCaptureConnection
     ) {
-        guard gestureTrackingEnabled else { return }
+        let trackingState = currentGestureTrackingState()
+        guard trackingState.enabled else { return }
+        let generation = trackingState.generation
 
         let now = ProcessInfo.processInfo.systemUptime
         guard now - lastVisionFrameUptime >= 0.08 else { return }
@@ -650,7 +831,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
 
             guard let detectedX else {
-                reportMissingHand(at: now)
+                reportMissingHand(at: now, matching: generation)
+                return
+            }
+
+            guard
+                isGestureTrackingStateCurrent(
+                    generation: generation,
+                    enabled: true
+                )
+            else {
                 return
             }
 
@@ -663,7 +853,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             }
             smoothedHandX = filteredX
             lastHandSeenUptime = now
-            if now - lastGestureDiagnosticUptime > 1 {
+            if isQAMode && now - lastGestureDiagnosticUptime > 1 {
                 lastGestureDiagnosticUptime = now
                 NSLog(
                     "[WindNestGesture] source=%@ pose=%@ fingers=%ld x=%.3f",
@@ -673,21 +863,41 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                     Double(filteredX)
                 )
             }
-            sendGestureStatus("tracking")
-            sendGestureOverlay(detectedOverlayPoints)
+            sendGestureStatus(
+                "tracking",
+                matching: generation,
+                enabled: true
+            )
+            sendGestureOverlay(
+                detectedOverlayPoints,
+                matching: generation,
+                enabled: true
+            )
             sendGestureFrame(
                 filteredX,
                 hasHand: true,
                 pose: detectedPose,
-                fingerCount: detectedFingerCount
+                fingerCount: detectedFingerCount,
+                matching: generation
             )
         } catch {
-            reportMissingHand(at: now)
+            reportMissingHand(at: now, matching: generation)
         }
     }
 
-    private func reportMissingHand(at now: TimeInterval) {
-        if now - lastGestureDiagnosticUptime > 3 {
+    private func reportMissingHand(
+        at now: TimeInterval,
+        matching generation: UInt64
+    ) {
+        guard
+            isGestureTrackingStateCurrent(
+                generation: generation,
+                enabled: true
+            )
+        else {
+            return
+        }
+        if isQAMode && now - lastGestureDiagnosticUptime > 3 {
             lastGestureDiagnosticUptime = now
             NSLog("[WindNestGesture] camera frames active; no hand")
         }
@@ -695,17 +905,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         if now - lastHandSeenUptime > 2.6 {
             smoothedHandX = nil
         }
-        guard lastGestureStatus != "searching" else { return }
-        sendGestureStatus("searching")
-        sendGestureOverlay(nil)
-        sendGestureFrame(nil, hasHand: false)
+        sendGestureStatus(
+            "searching",
+            matching: generation,
+            enabled: true
+        )
+        sendGestureOverlay(
+            nil,
+            matching: generation,
+            enabled: true
+        )
+        sendGestureFrame(
+            nil,
+            hasHand: false,
+            matching: generation
+        )
     }
 
     func userContentController(
         _ userContentController: WKUserContentController,
         didReceive message: WKScriptMessage
     ) {
-        guard message.name == "wallpaper" else { return }
+        guard
+            message.name == "wallpaper",
+            message.frameInfo.isMainFrame,
+            let pageURL = message.webView?.url,
+            isBundledResourceURL(pageURL)
+        else {
+            return
+        }
         if let body = message.body as? [String: Any],
            let action = body["action"] as? String {
             if action == "quit" {
@@ -729,10 +957,33 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 NSWorkspace.shared.open(settingsURL)
             }
             if action == "qa-power",
-               ProcessInfo.processInfo.environment["WIND_NEST_QA"] == "1" {
+               isQAMode {
                 print("WIND_NEST_QA_POWER \(body["power"] ?? "unknown")")
             }
         }
+    }
+
+    func webView(
+        _ webView: WKWebView,
+        decidePolicyFor navigationAction: WKNavigationAction,
+        decisionHandler: @escaping (WKNavigationActionPolicy) -> Void
+    ) {
+        guard let url = navigationAction.request.url else {
+            decisionHandler(.cancel)
+            return
+        }
+
+        if isBundledResourceURL(url) || url.absoluteString == "about:blank" {
+            decisionHandler(.allow)
+            return
+        }
+
+        if navigationAction.navigationType == .linkActivated,
+           let scheme = url.scheme?.lowercased(),
+           ["http", "https"].contains(scheme) {
+            NSWorkspace.shared.open(url)
+        }
+        decisionHandler(.cancel)
     }
 
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
@@ -770,7 +1021,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
         RunLoop.main.add(timer, forMode: .common)
         renderTimer = timer
 
-        guard ProcessInfo.processInfo.environment["WIND_NEST_QA"] == "1" else {
+        guard isQAMode else {
             return
         }
 
@@ -1083,6 +1334,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                     "window.windNestGestureStatus('off')"
                 )
             }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 15.0) {
+                webView.evaluateJavaScript(
+                    """
+                    JSON.stringify({
+                      loading: document.querySelector('#loading')?.className,
+                      frame: window.__WIND_NEST_QA_FRAME__
+                    })
+                    """
+                ) { result, error in
+                    if let error {
+                        print(
+                            "WIND_NEST_QA_FINAL_ERROR " +
+                            error.localizedDescription
+                        )
+                    } else {
+                        print("WIND_NEST_QA_FINAL \(result ?? "null")")
+                    }
+                    print("WIND_NEST_QA_COMPLETE")
+                    NSApp.terminate(nil)
+                }
+            }
 
             webView.evaluateJavaScript(
                 "document.querySelector('canvas')?.toDataURL('image/png')"
@@ -1143,9 +1415,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        updateGestureTrackingState(false)
         renderTimer?.invalidate()
         if let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
+        }
+        NotificationCenter.default.removeObserver(self)
+        gestureQueue.sync { [self] in
+            gestureOutput?.setSampleBufferDelegate(nil, queue: nil)
+            if gestureSession.isRunning {
+                gestureSession.stopRunning()
+            }
         }
         webView?.configuration.userContentController.removeScriptMessageHandler(
             forName: "wallpaper"

@@ -27,17 +27,15 @@
 在 [GitHub Releases](https://github.com/luckylee6666/wind-nest-wallpaper/releases)
 下载 `Wind-Nest-macOS-universal.zip`，解压后将“风巢.app”拖入“应用程序”目录。
 
-正式公开分发建议使用经过 Apple Developer ID 签名和公证的发布包。仓库未配置
-Developer ID 时，GitHub Actions 仍会生成临时签名包，但首次打开可能需要在
-Finder 中按住 Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”
-确认打开。
+当前下载包使用 Ad Hoc 临时签名。首次打开若被 macOS 拦截，请在 Finder 中按住
+Control 点击应用并选择“打开”，或前往“系统设置 → 隐私与安全性”确认打开。
 
 ## 构建与运行
 
 构建环境需要 Xcode Command Line Tools 和 Node.js 18 或更高版本。
 
 ```bash
-npm ci
+npm ci --ignore-scripts
 ./scripts/build.sh
 ./scripts/package.sh
 open dist/风巢.app
@@ -59,7 +57,7 @@ open dist/风巢.app
 - 张开手掌：启动风扇
 - 伸出 1/2/3 根手指：切换一/二/三档
 - `H` 或 `Esc`：隐藏或显示控制条
-- `Command + Q`：退出
+- 点击右上角“退出”或按 `Command + Q`：完全退出应用
 
 ## 三维模型与重新生成
 
@@ -94,4 +92,5 @@ scripts/package.sh        生成 ZIP 下载包与 SHA-256 校验文件
 
 ## 许可证
 
-本项目使用 [MIT License](LICENSE) 开源。Three.js 等第三方依赖遵循各自的许可证。
+本项目使用 [MIT License](LICENSE) 开源，第三方依赖许可见
+[THIRD_PARTY_NOTICES.txt](THIRD_PARTY_NOTICES.txt)。
