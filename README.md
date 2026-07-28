@@ -47,34 +47,6 @@ open dist/风巢.app
 `dist/Wind-Nest-macOS-universal.zip`。首次开启手势控制时，macOS 会请求摄像头
 权限。本地构建采用临时签名，重新构建后系统可能再次询问权限。
 
-## GitHub 自动构建与发布
-
-`.github/workflows/build-macos.yml` 会在以下情况运行：
-
-- 更新 `main` 分支或创建 Pull Request：构建并保存 30 天的下载产物
-- 手动运行工作流：按当前分支生成下载产物
-- 推送 `v` 开头的版本标签：构建并自动创建 GitHub Release
-
-例如发布 `v2.0.0`：
-
-```bash
-git tag v2.0.0
-git push origin v2.0.0
-```
-
-如需让普通用户直接通过 Gatekeeper 检查，需要加入 Apple Developer Program，并在
-仓库 Actions secrets 中配置：
-
-- `APPLE_CERTIFICATE_P12`：Developer ID Application 证书 `.p12` 的 Base64 内容
-- `APPLE_CERTIFICATE_PASSWORD`：导出 `.p12` 时设置的密码
-- `APPLE_ID`：用于公证的 Apple ID
-- `APPLE_TEAM_ID`：Apple Developer Team ID
-- `APPLE_APP_SPECIFIC_PASSWORD`：Apple ID 的 App 专用密码
-- `APPLE_SIGNING_IDENTITY`：可选；证书包含多个身份时指定完整签名身份
-
-标签构建会在 secrets 完整时自动完成 Developer ID 签名、Apple 公证和票据装订。
-未配置证书时仍会发布临时签名包，并在 Actions 日志中给出提醒。
-
 ## 交互
 
 - 点击控制栏电源按钮：启动或停止
