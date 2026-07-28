@@ -1233,30 +1233,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
                 ) {
                     webView.evaluateJavaScript(
                         """
-                        window.windNestGestureStatus('tracking');
-                        window.windNestGestureFrame(
-                          0.5,
-                          true,
-                          'neutral',
-                          \(check.count)
-                        );
-                        setTimeout(
-                          () => window.windNestGestureFrame(
-                            0.5,
-                            true,
+                        JSON.stringify(
+                          window.__WIND_NEST_QA_GESTURE_COMMAND__(
                             'neutral',
                             \(check.count)
-                          ),
-                          520
-                        );
+                          )
+                        )
                         """
-                    )
-                }
-                DispatchQueue.main.asyncAfter(
-                    deadline: .now() + check.delay + 0.7
-                ) {
-                    webView.evaluateJavaScript(
-                        "JSON.stringify(window.__WIND_NEST_QA_FRAME__)"
                     ) { result, error in
                         print(
                             error == nil
@@ -1271,27 +1254,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             DispatchQueue.main.asyncAfter(deadline: .now() + 12.0) {
                 webView.evaluateJavaScript(
                     """
-                    window.windNestGestureFrame(
-                      0.5,
-                      true,
-                      'fist',
-                      0
-                    );
-                    setTimeout(
-                      () => window.windNestGestureFrame(
-                        0.5,
-                        true,
-                        'fist',
-                        0
-                      ),
-                      520
-                    );
+                    JSON.stringify(
+                      window.__WIND_NEST_QA_GESTURE_COMMAND__('fist', 0)
+                    )
                     """
-                )
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 12.7) {
-                webView.evaluateJavaScript(
-                    "JSON.stringify(window.__WIND_NEST_QA_FRAME__)"
                 ) { result, error in
                     print(
                         error == nil
@@ -1304,22 +1270,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKScriptMessageHandler
             DispatchQueue.main.asyncAfter(deadline: .now() + 12.9) {
                 webView.evaluateJavaScript(
                     """
-                    window.windNestGestureFrame(0.5, true, 'open', 4);
-                    setTimeout(
-                      () => window.windNestGestureFrame(
-                        0.5,
-                        true,
-                        'open',
-                        4
-                      ),
-                      520
-                    );
+                    JSON.stringify(
+                      window.__WIND_NEST_QA_GESTURE_COMMAND__('open', 4)
+                    )
                     """
-                )
-            }
-            DispatchQueue.main.asyncAfter(deadline: .now() + 13.6) {
-                webView.evaluateJavaScript(
-                    "JSON.stringify(window.__WIND_NEST_QA_FRAME__)"
                 ) { result, error in
                     print(
                         error == nil

@@ -888,7 +888,11 @@ window.windNestGestureStatus = (status) => {
   markActivity();
 };
 
-function applyGestureCommand(pose, fingerCount = null) {
+function applyGestureCommand(
+  pose,
+  fingerCount = null,
+  now = performance.now(),
+) {
   const nextPose = ["open", "fist"].includes(pose) ? pose : "neutral";
   const nextFingerCount =
     Number.isInteger(fingerCount) && fingerCount >= 1 && fingerCount <= 3
@@ -896,8 +900,6 @@ function applyGestureCommand(pose, fingerCount = null) {
       : null;
   const nextCommand =
     nextFingerCount === null ? nextPose : `speed-${nextFingerCount}`;
-  const now = performance.now();
-
   state.gesturePose = nextPose;
   state.gestureFingerCount = nextFingerCount;
 
@@ -938,6 +940,25 @@ function applyGestureCommand(pose, fingerCount = null) {
     updateUI();
     markActivity();
   }
+}
+
+if (window.__WIND_NEST_QA__) {
+  window.__WIND_NEST_QA_GESTURE_COMMAND__ = (
+    pose,
+    fingerCount = null,
+  ) => {
+    const now = performance.now();
+    applyGestureCommand("neutral", null, now);
+    applyGestureCommand(pose, fingerCount, now);
+    applyGestureCommand(pose, fingerCount, now + 500);
+    return {
+      speed: state.speed,
+      power: state.power,
+      gesturePose: state.gesturePose,
+      gestureFingerCount: state.gestureFingerCount,
+      gestureCommand: state.gestureCommand,
+    };
+  };
 }
 
 window.windNestGestureFrame = (
